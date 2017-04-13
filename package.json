@@ -1,0 +1,43 @@
+{
+  "name": "ucipass-dupfinder",
+  "version": "1.0.0",
+  "description": "Find duplicate files recursively based on datetime, filename, size or hash",
+  "main": "dupfinder.js",
+  "scripts": {
+    "start": "node dupfinder.js",
+    "test": "mocha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ucipass/ucipass-dupfinder.git"
+  },
+  "keywords": [
+    "duplicate",
+    "finder",
+    "recursive",
+    "recursively",
+    "find",
+    "duplicate",
+    "files",
+    "directories",
+    "hash",
+    "hashes"
+  ],
+  "author": "ucipass",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ucipass/ucipass-dupfinder/issues"
+  },
+  "homepage": "https://github.com/ucipass/ucipass-dupfinder#readme",
+  "dependencies": {
+    "chai": "^3.5.0",
+    "mocha": "^3.2.0",
+    "moment": "^2.18.1"
+  },
+  "directories": {
+    "test": "test"
+  },
+  "devDependencies": {
+    "mocha": "^3.2.0"
+  }
+}
