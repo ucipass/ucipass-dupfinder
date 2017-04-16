@@ -1,6 +1,6 @@
 var fs = require("fs")
 var path = require("path")
-var f = require("../ucipassweb/bin/lib_files.js")
+var File = require("ucipass-file")
 var moment = require('moment')
 var crypto = require('crypto')
 
@@ -10,20 +10,11 @@ async function dupfinder (directory) {
 	var dir = new DirList(directory)
 	await dir.getDirList()
 	console.log("Number of Files:",dir.list.length,"in directory:",directory)
-	var duplist = dir.dupDirList()
-	//duplist = dupDirListByMtime(filelist)
-	//duplist = await dupDirListByHash(filelist)
-	//duplist = duplist.reduce( (prev,next)=>{ return prev.concat(dupDirListBySize(next))  }, [])
-	//duplist = dupDirListBySize(filelist)
-	//duplist = duplist.reduce( (prev,next)=>{ return prev.concat(dupDirListByMtime(next))  }, [])
-	//duplist = duplist.reduce( async (prev,next)=>{ return (await prev).concat(await dupDirListByHash(next)) }, Promise.resolve([]))
-	//duplist = await duplist
+	var duplist = await dir.dupDirListHash("size")
 	te = moment(new Date())
 	duration = moment.duration(te.diff(ts)).asMilliseconds();
-	console.log(duplist.length," duplicate file groups found in",duration,"ms")
 	//return Promise.all(duplist) ;
-	return Promise.all(duplist) ;
-	
+	return Promise.all(duplist) ;	
 };
 
 class DirList{
@@ -32,6 +23,7 @@ class DirList{
 		this.list = []
 		this.sortby = "size"
 	}
+
 	getDirList(){  var _this = this ; return new Promise( async function(resolve,reject){
 
 		var dirlist =  [_this.path]
@@ -48,19 +40,27 @@ class DirList{
 				else if (stat.isDirectory()){
 					dirlist.push(entry)
 				}else{
+					var file = new File(entry)
+					file.name = path.basename(entry)
+					file.size = stat.size
+					file.ctime = stat.ctime
+					file.mtime = stat.mtime
+					/*
 					var json = {
 						name: entry,
 						size: stat.size,
 						ctime: stat.ctime,
 						mtime: stat.mtime
 					}
-					filelist.push(json)
+					*/
+					filelist.push(file)
 				}
 			}	
 		}
 		_this.list = filelist
 		resolve( filelist )
 	})}
+	
 	sortDirList(){
 		var files = this.list
 		var compare = this.compareFn.bind(this)
@@ -104,7 +104,8 @@ class DirList{
 			return(0)
 		}
 	}
-	dupDirList(){
+	dupDirList(sortby){
+		this.sortby = sortby ? sortby : this.sortby
 		this.sortDirList()
 		var files = this.list
 		var compareFn = this.compareFn.bind(this)
@@ -131,10 +132,30 @@ class DirList{
 
 		return duplist;
 	}
+	async dupDirListHash(){
+
+
+		var duplist = this.dupDirList("mtime")
+		duplist = duplist.reduce( (prev,next)=>{ return prev.concat(dupDirList(next,'size'))  }, [])
+		for (var i = 0 ; i <duplist.length ; i++){
+			var list = duplist[i]
+			for (var x = 0 ; x <list.length ; x++){
+				var file = list[x]
+				await file.hashfn()
+			}
+		}
+		duplist = duplist.reduce( (prev,next)=>{ return prev.concat(dupDirList(next,'hash'))  }, [])
+		return duplist;
+	}
 
 }
 
 function sortDirList(files,sortby){
+
+	return files
+}
+
+function dupDirList(files,sortby){
 	function compare(a,b){
 
 		var aval = null
@@ -174,95 +195,12 @@ function sortDirList(files,sortby){
 	}
 	
 	files.sort(compare)
-	return files
-}
-
-function dupDirListByMtime(files){
-	sortDirList(files,"mtime")
 	var set = 0 ;
 	var duplist = []
 	var total = files.length
 	files.forEach((file,index,arr)=>{
-		var nextMatch = arr[index+1] && arr[index].mtime.getTime() == arr[index+1].mtime.getTime() 
-		var prevMatch = arr[index-1] && arr[index].mtime.getTime() == arr[index-1].mtime.getTime()
-		if( nextMatch ){
-			//console.log(index,"of",total,"Set:",set,file.mtime, file.name)
-			if (!duplist[set]){
-				duplist.push([file])
-			}else{
-				duplist[set].push(file)
-			}
-		}
-		else if( prevMatch ){
-			//console.log(index,"of",total,"Set:",set,file.mtime, file.name)
-			duplist[set].push(file)
-			set++
-		}
-	})
-
-	return duplist;
-}
-
-function dupDirListBySize(files){
-	sortDirList(files,"size")
-	var set = 0 ;
-	var duplist = []
-	var total = files.length
-	files.forEach((file,index,arr)=>{
-		var nextMatch = arr[index+1] && arr[index].size == arr[index+1].size
-		var prevMatch = arr[index-1] && arr[index].size == arr[index-1].size
-		if( nextMatch ){
-			//console.log(index,"of",total,"Set:",set,file.mtime, file.name)
-			if (!duplist[set]){
-				duplist.push([file])
-			}else{
-				duplist[set].push(file)
-			}
-		}
-		else if( prevMatch ){
-			//console.log(index,"of",total,"Set:",set,file.mtime, file.name)
-			duplist[set].push(file)
-			set++
-		}
-	})
-
-	return duplist;
-}
-
-async function dupDirListByHash(files){
-	var set = 0 ;
-	var duplist = []
-	var total = files.length
-	console.log("About to hash",total,"duplicate files!")
-	
-	// Retrieve hashes for all files
-	for(var x = 0 ; x< files.length ; x++){
-		var file = files[x]
-		var buffer = null
-		if(file.buffer){
-			buffer = file.buffer
-		}
-		else{
-			try{
-				
-				buffer = fs.readFileSync(file.name)
-				//console.log("TEST")
-			} catch(e){ 
-				console.log(e)
-			}
-		}
-		var md5 = crypto.createHash('md5')
-		md5.update(buffer, 'utf8');
-		file.hash = md5.digest('hex');
-		console.log("Hashed:",x+1,"of",files.length,":",file.hash,file.size,file.name)
-	}
-	
-	sortDirList(files,"hash")
-
-	files.forEach((file,index,arr)=>{
-
-		var nextMatch = arr[index+1] && arr[index].hash == arr[index+1].hash
-		var prevMatch = arr[index-1] && arr[index].hash == arr[index-1].hash
+		var nextMatch = arr[index+1] && ( ! compare( arr[index] , arr[index+1]  )   )
+		var prevMatch = arr[index-1] &&  ( ! compare( arr[index] , arr[index-1]  )   )
 		if( nextMatch ){
 			//console.log(index,"of",total,"Set:",set,file.mtime, file.name)
 			if (!duplist[set]){
@@ -303,50 +241,20 @@ function fstat(dir) {return new Promise(function(resolve,reject){
 	})
 })}
 
-function getDirList(dir) {  return new Promise( async function(resolve,reject){
-
-	var dirlist =  [dir]
-	var filelist = []
-
-	while (dirlist.length > 0) {
-		var curdir = dirlist.pop()
-		var curlist = await readdir(curdir)
-		for(var x = 0; x < curlist.length; x++){
-			var entry = path.join(curdir,curlist[x])
-			var stat = await fstat(entry)
-			if (!stat){
-			}
-			else if (stat.isDirectory()){
-				dirlist.push(entry)
-			}else{
-				var json = {
-					name: entry,
-					size: stat.size,
-					ctime: stat.ctime,
-					mtime: stat.mtime
-				}
-				filelist.push(json)
-			}
-		}	
-	}
-	resolve( filelist )
-})}
-
 if (require.main === module) {
-    console.log('called directly',process.argv[2]);
+    console.log('called directly with directory',process.argv[2]);
 	var dir = process.argv[2]
 	var ts = moment(new Date())
 	dupfinder(dir)
 	.then((list)=>{
 		var te = moment(new Date())
 		duration = moment.duration(te.diff(ts)).asMilliseconds();
-		console.log("Number of duplicates:",list.length,"Duration",duration,"ms")
 		list.forEach((dup,index)=>{
-			console.log("Duplicate",index)
 			dup.forEach((file)=>{
-				console.log("  ",file.size,file.mtime,file.hash,file.name)
+				console.log("DUP,"+index.toString()+","+file.size.toString()+","+file.mtime.toISOString()+","+file.hash+","+file.fpath)
 			})
 		})
+		console.log("Number of duplicates:",list.length,"Duration",duration,"ms")
 	})
 	.catch((err)=>{console.log("BAD ERROR",err)})
 }
